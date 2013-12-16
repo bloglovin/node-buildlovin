@@ -1,0 +1,190 @@
+#!/usr/bin/env node
+
+var program  = require('commander');
+var bl       = require('..');
+var fs       = require('fs');
+var path     = require('path');
+var chokidar = require('chokidar');
+
+var base     = path.join(process.cwd(), 'apps');
+var out      = path.join(process.cwd(), 'builds');
+
+// Matches files that probably rebuild CSS
+// Rebuild on images because inlined images might need update
+var cssfilter = /\.(css|png|gif|jpg)$/;
+
+// Matches files that should rebuild JS
+// Rebuild on yaml to support changes in config
+var jsfilter  = /\.(js|hbs|handlebars|yml|yaml)$/;
+
+//
+// # Global options
+//
+program
+  .option('-a, --apps <apps>', 'Base apps directory if not _apps_.', function (apps) {
+    return path.join(process.cwd(), apps);
+  }, base)
+  .option('-o, --output <dir>', 'Output directory.', function (dir) {
+    return path.join(process.cwd(), dir);
+  }, out)
+  .option('-d, --debug', 'Turns off CSS/JS minification and turns on source map generation.')
+  .option('-n, --notify', 'Use terminal-notifier to generate a OS X notification when done.');
+
+//
+// # Build
+//
+// Does a one time build of all or a subset of the applications.
+//
+program
+  .command('build')
+  .description('Builds all or a subset of the applications.')
+  .option('-c, -css', 'Only build CSS. Using with -js is the same as no option.')
+  .option('-j, -js', 'Only build JS. Using with -css is the same as no option.')
+  .action(function () {
+    var n     = this.notify;
+    var base  = this.apps;
+    var css   = this.css;
+    var js    = this.js;
+    var debug = this.debug;
+    var apps  = this.args.filter(function (itm) { return typeof itm === 'string'; });
+    var all   = !apps.length;
+
+    if (all) {
+      try {
+        apps = fs.readdirSync(base).filter(function (itm) {
+          return fs.statSync(path.join(base, itm)).isDirectory();
+        }).filter(function (itm) {
+          return itm.indexOf('_') !== 0;
+        });
+      }
+      catch (e) {
+        notify(e);
+      }
+    }
+
+    apps = apps.map(function (itm) {
+      return path.join(base, itm);
+    });
+
+    var options = {};
+    options.output  = this.output;
+    options.minify  = !debug;
+    options.srcmaps = debug;
+
+    try {
+      apps.forEach(function (app) {
+        if (css && !js || !css && js) {
+          if (css) bl.buildAppCSS(app, options);
+          if (js)  bl.buildAppJS(app, options);
+        }
+        else {
+          bl.buildApp(app, options);
+        }
+      });
+      notify('Done building: ' + (all ? 'all applications' : apps.join(', ')) + '.');
+    }
+    catch (e) {
+      notify(e);
+    }
+  });
+
+//
+// # Watch
+//
+// Watch all applications, rebuild when updated.
+//
+program
+  .command('watch')
+  .description('Watch and rebuild changes.')
+  .action(function () {
+    var base    = this.apps;
+    var watcher = chokidar.watch(this.apps, { persistent: true });
+
+    var options = {};
+    options.output  = this.output;
+    options.minify  = !this.debug;
+    options.srcmaps = !!this.debug;
+
+    watcher.on('error', function (err) {
+      notify(err);
+      watcher.close();
+      process.exit(1);
+    });
+    watcher.on('all', function (type, file) {
+      var app = file.substr(base.length + 1).split(path.sep)[0];
+      var css = cssfilter.test(file);
+      var js  = jsfilter.test(file);
+
+      var apps = [];
+
+      // Shared component rebuild everything.
+      if (app.indexOf('_') === 0) {
+        try {
+          apps = fs.readdirSync(base).filter(function (itm) {
+            return fs.statSync(path.join(base, itm)).isDirectory();
+          }).map(function (itm) {
+            return path.join(base, itm);
+          });
+        }
+        catch (e) {
+          notify(e);
+        }
+      }
+      // Rebuild single app
+      else {
+        apps.push(path.join(base, app));
+      }
+
+      try {
+        apps.forEach(function (app) {
+          if (css && js) {
+            bl.buildApp(app, options);
+            notify('Finished building: ' + app);
+          }
+          else if (css) {
+            bl.buildAppCSS(app, options);
+            notify('Finished building CSS: ' + app);
+          }
+          else if (js) {
+            bl.buildAppJS(app, options);
+            notify('Finished building JS: ' + app);
+          }
+        });
+      }
+      catch (e) { notify(e); }
+    });
+
+    process.on('exit', function () {
+      watcher.close();
+    });
+    process.on('SIGINT', function () {
+      watcher.close();
+    });
+  });
+
+// Parse args.
+program.parse(process.argv);
+
+//
+// ## Notify
+//
+function notify(message) {
+  if (program.notify) {
+    var tn = require('terminal-notifier');
+    if (typeof message === 'string') {
+      tn(message, { title: 'Buildlovin', group: 'Buildlovin'});
+    }
+    else if (message instanceof Error) {
+      tn(message.message, {
+        title: 'Buildlovin',
+        subtitle: 'Error',
+        group: 'Buildlovin'
+      });
+      console.log(message);
+    }
+  }
+  else {
+    console.log(message, message instanceof Error ? message.stack : '');
+  }
+}
+
