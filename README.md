@@ -1,24 +1,27 @@
-# Build System That Doesn't Suck
+# Buildlovin
 
 What we use to build assets for Bloglovin.com
 
-## Requirements
- 
- * Should work on server using the same techonologies as the live environment (ie node)
- * Should work well with dev environment
- * Fast and smart watching during dev
-   * Don't compile if not needed
+Builds multiple Ember applications and compiles CSS.
 
-## What it needs to do
+## Application Structure
 
-* Compile Ember templates
-* Concatenate and minify JavaScript - generate source maps
-* Compile "Bling"
-* Handle concept of "many apps" and shared components between those
+The file structure should look a little something like this:
 
-## Application
+```
+apps/
+  config.yml         // Main config, describes what vendor scripts all bundles should include
+  _vendor/           // Contains shared third party scripts
+  _shared/           // Contains shared "local" scripts and styles
+  app_name/          // One app
+  foobar/            // Another app
+    templates/       // Should contain any handlebar files
+    styles/          // Any .css file (not in subdir) here will be compiled using bling
+    other/           // Any other folder will be considered part of the Ember
+                     // application. Like controllers, models, routes.
+                     // Any .js file inside the application dir will be
+                     // minified into one file.
 
-An application is a directory with JavaScript files that together makes an
-Ember application.
-
+    config.yml       // Appliation configuration. Extra vendor scripts etc
+```
 
