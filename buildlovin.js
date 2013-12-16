@@ -8,7 +8,7 @@
 // this particular app uses as well as a few special directories. The special
 // directories are:
 //
-//  * styles: contains css files to be compiled using "bling"
+//  * style: contains css files to be compiled using "bling"
 //  * templates: contains handlebars templates
 //
 // Other directories are used to separate Ember components (routes, models etc)
@@ -26,9 +26,11 @@ var yaml   = require('js-yaml');
 var _      = require('lodash');
 
 function buildAppCSS(app, options) {
-  // Read each individual file in app/styles
+  // Read each individual file in app/style
   var appn  = app.split(path.sep).pop();
-  var base  = path.join(app, 'styles');
+  console.log('Building CSS:', appn);
+  var base  = path.join(app, 'style');
+  console.log(base);
   if (!fs.existsSync(base)) return;
   var files = fs.readdirSync(base).filter(function (file) {
     return (/\.css$/).test(file);
@@ -52,6 +54,7 @@ function buildAppCSS(app, options) {
   });
 
   // Write to output dir
+  var wfiles = [];
   Object.keys(css).forEach(function (key) {
     // Create filename
     var md5 = crypto.createHash('md5');
@@ -59,11 +62,15 @@ function buildAppCSS(app, options) {
     var hash = md5.digest('hex');
 
     var filename = [appn, key.replace('.css', ''), hash].join('-') + '.css';
+    wfiles.push(filename);
     fs.writeFileSync(path.join(options.output, filename), css[key], 'utf8');
   });
+
+  updateManifest(options.output, wfiles);
 }
 
 function buildAppJS(app, options) {
+  console.log('Building JS:', app);
   var conf = loadConf(app);
   var appn = app.split(path.sep).pop();
 
@@ -95,9 +102,11 @@ function buildAppJS(app, options) {
     files.unshift(tmpfile);
   }
 
+
   if (typeof conf.defaultVendor === 'undefined' || conf.defaultVendor !== false) {
-    var vendor = conf.vendor || {};
-    Object.keys(vendor).forEach(function (key) {
+    var prop   = options.debug ? 'vendorDebug' : 'vendor';
+    var vendor = conf[prop] || {};
+    Object.keys(vendor).reverse().forEach(function (key) {
       files.unshift(path.resolve(app, '..', vendor[key]));
     });
   }
@@ -113,10 +122,15 @@ function buildAppJS(app, options) {
   md5.update(result.code);
   var hash = md5.digest('hex');
   var filename = [appn, hash].join('-');
-  fs.writeFileSync(path.join(options.output, filename + '.js'), result.code, 'utf8');
+  var fpath = path.join(options.output, filename + '.js');
+  fs.writeFileSync(fpath, result.code, 'utf8');
+  var wfiles = [filename + '.js'];
   if (result.map) {
-    fs.writeFileSync(path.join(options.output, filename + '.map.js'), result.map, 'utf8');
+    fs.writeFileSync(fpath + '.map.js', result.map, 'utf8');
+    wfiles.push(filename + '.map.js');
   }
+
+  updateManifest(options.output, wfiles);
 }
 
 function buildApp(app, options) {
@@ -160,5 +174,37 @@ function loadConf(app) {
   }
 
   return _.merge(conf, aconf);
+}
+
+function updateManifest(output, writtenFiles) {
+  var basePath = path.resolve(output, 'buildManifest.json');
+  var manifest = {};
+  try {
+    manifest = require(basePath);
+  }
+  catch (e) {}
+
+  if (!Array.isArray(writtenFiles)) {
+    writtenFiles = [writtenFiles];
+  }
+
+  writtenFiles.forEach(function (file) {
+    var parts  = file.split('-');
+    var hash   = parts.pop();
+    var ext    = hash.substr(hash.indexOf('.'));
+    var target = parts.join('-') + ext;
+    if (!manifest[target]) {
+      manifest[target] = [];
+    }
+
+    if (manifest[target][0] === path.basename(file)) {
+      return;
+    }
+
+    manifest[target].unshift(path.basename(file));
+    manifest[target].splice(2);
+  });
+
+  fs.writeFileSync(basePath, JSON.stringify(manifest, null, '  '), 'utf8');
 }
 

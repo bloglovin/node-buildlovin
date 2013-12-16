@@ -70,6 +70,7 @@ program
     options.output  = this.output;
     options.minify  = !debug;
     options.srcmaps = debug;
+    options.debug   = this.debug;
 
     try {
       apps.forEach(function (app) {
@@ -98,12 +99,13 @@ program
   .description('Watch and rebuild changes.')
   .action(function () {
     var base    = this.apps;
-    var watcher = chokidar.watch(this.apps, { persistent: true });
+    var watcher = chokidar.watch(this.apps);
 
     var options = {};
     options.output  = this.output;
     options.minify  = !this.debug;
     options.srcmaps = !!this.debug;
+    options.debug   = this.debug;
 
     watcher.on('error', function (err) {
       notify(err);
@@ -111,6 +113,7 @@ program
       process.exit(1);
     });
     watcher.on('all', function (type, file) {
+      if (type == 'add') return;
       var app = file.substr(base.length + 1).split(path.sep)[0];
       var css = cssfilter.test(file);
       var js  = jsfilter.test(file);
@@ -124,6 +127,8 @@ program
             return fs.statSync(path.join(base, itm)).isDirectory();
           }).map(function (itm) {
             return path.join(base, itm);
+          }).filter(function (itm) {
+            return itm.indexOf('_') !== 0;
           });
         }
         catch (e) {
@@ -173,6 +178,7 @@ function notify(message) {
     var tn = require('terminal-notifier');
     if (typeof message === 'string') {
       tn(message, { title: 'Buildlovin', group: 'Buildlovin'});
+      console.log(message);
     }
     else if (message instanceof Error) {
       tn(message.message, {
